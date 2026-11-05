@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dev-dist/
+
+# Chiavi e configurazione locale
+.env
+.env.*
+!.env.example
+youtube-key.txt
+
+.DS_Store
+*.log
