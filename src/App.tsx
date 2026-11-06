@@ -67,8 +67,18 @@ export default function App() {
   const [ytPlaying, setYtPlaying] = useState(true)
   const ytPlayer = useRef<YouTubePlayerHandle | null>(null)
   const [notice, setNotice] = useState('')
+  /** Playlist Spotify in riproduzione: a fine brano si cerca il successivo. */
+  const [spotifyPlayback, setSpotifyPlayback] = useState<{
+    playlistId: string
+    index: number
+  } | null>(null)
 
   const offline = useOfflineCache()
+
+  // Chiede al browser di non buttare via libreria e playlist quando manca spazio.
+  useEffect(() => {
+    void navigator.storage?.persist?.().catch(() => undefined)
+  }, [])
 
   const playableTracks = useMemo(() => {
     const map = new Map<string, Track>()
@@ -167,6 +177,7 @@ export default function App() {
   const openYouTube = useCallback(
     (videos: YouTubeVideo[], index: number) => {
       if (!videos[index]) return
+      setSpotifyPlayback(null)
       setYt({ videos, index })
       setYtExpanded(true)
       setYtPlaying(true)
@@ -199,6 +210,7 @@ export default function App() {
   const closeYouTube = useCallback(() => {
     ytPlayer.current?.pause()
     setYt(null)
+    setSpotifyPlayback(null)
   }, [])
 
   useEffect(() => {
@@ -232,7 +244,8 @@ export default function App() {
       const known = toYouTubeVideo(item)
       if (known) {
         openYouTube([known], 0)
-        return
+        setSpotifyPlayback({ playlistId: playlist.id, index })
+        return true
       }
 
       setNotice('Cerco il brano su YouTube…')
@@ -240,17 +253,36 @@ export default function App() {
         const [video] = await searchYouTube(spotifyQuery(item))
         if (!video) {
           setNotice('Brano non trovato su YouTube')
-          return
+          return false
         }
         await library.rememberSpotifyVideo(playlist.id, item.id, video)
         openYouTube([video], 0)
+        setSpotifyPlayback({ playlistId: playlist.id, index })
+        return true
       } catch (searchError) {
         setNotice(
           searchError instanceof Error ? searchError.message : 'Ricerca non disponibile ora.',
         )
+        return false
       }
     },
     [library, openYouTube],
+  )
+
+  /**
+   * Passa al brano successivo della playlist Spotify, saltando quelli che su
+   * YouTube non si trovano: la coda della playlist non si ferma al primo brano.
+   */
+  const playSpotifyFrom = useCallback(
+    async (playlist: Playlist, start: number) => {
+      const total = playlist.spotify?.tracks.length ?? 0
+      for (let index = start; index < total; index += 1) {
+        if (await playSpotifyTrack(playlist, index)) return
+      }
+      setNotice('Nessun altro brano trovato su YouTube')
+      setYtPlaying(false)
+    },
+    [playSpotifyTrack],
   )
 
   const accent =
@@ -280,6 +312,14 @@ export default function App() {
   const ytCover = ytVideoId ? ytCovers[ytVideoId] : undefined
   const ytHasPrev = yt ? yt.index > 0 : false
   const ytHasNext = yt ? yt.index < yt.videos.length - 1 : false
+
+  // Riproduzione di una playlist Spotify: la coda vive nella playlist, non nel player.
+  const spotifyList = spotifyPlayback
+    ? library.playlists.find((list) => list.id === spotifyPlayback.playlistId)
+    : undefined
+  const spotifyCount = spotifyList?.spotify?.tracks.length ?? 0
+  const spotifyHasNext = Boolean(spotifyPlayback && spotifyPlayback.index + 1 < spotifyCount)
+  const spotifyHasPrev = Boolean(spotifyPlayback && spotifyPlayback.index > 0)
 
   return (
     <div className="app" style={{ '--accent': accent } as CSSProperties}>
@@ -505,10 +545,26 @@ export default function App() {
           playerRef={ytPlayer}
           onTogglePlay={ytToggle}
           onMinimize={() => setYtExpanded(false)}
-          onPrevious={ytHasPrev ? () => ytStep(-1) : undefined}
-          onNext={ytHasNext ? () => ytStep(1) : undefined}
+          onPrevious={
+            spotifyHasPrev && spotifyList && spotifyPlayback
+              ? () => void playSpotifyFrom(spotifyList, spotifyPlayback.index - 1)
+              : ytHasPrev
+                ? () => ytStep(-1)
+                : undefined
+          }
+          onNext={
+            spotifyHasNext && spotifyList && spotifyPlayback
+              ? () => void playSpotifyFrom(spotifyList, spotifyPlayback.index + 1)
+              : ytHasNext
+                ? () => ytStep(1)
+                : undefined
+          }
           onPlayStateChange={setYtPlaying}
           onEnded={() => {
+            if (spotifyHasNext && spotifyList && spotifyPlayback) {
+              void playSpotifyFrom(spotifyList, spotifyPlayback.index + 1)
+              return
+            }
             if (ytHasNext) ytStep(1)
             else setYtPlaying(false)
           }}
