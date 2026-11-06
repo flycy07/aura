@@ -114,8 +114,8 @@ export function YouTubeScreen({
         <span className="ytnp__badge">YouTube · player ufficiale</span>
       </header>
 
+      {/* Nessuna key: il player resta lo stesso a ogni brano, così iOS continua da solo. */}
       <YouTubePlayer
-        key={video.id}
         ref={playerRef}
         videoId={video.id}
         title={video.title}

@@ -3,6 +3,8 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 're
 type PlayerInstance = {
   playVideo: () => void
   pauseVideo: () => void
+  /** Cambia video nello stesso iframe: su iOS non richiede un nuovo tocco. */
+  loadVideoById: (id: string) => void
   seekTo: (seconds: number, allowSeekAhead: boolean) => void
   getCurrentTime: () => number
   getDuration: () => number
@@ -87,6 +89,14 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
   const player = useRef<PlayerInstance | null>(null)
   const [error, setError] = useState<number | null>(null)
 
+  // Il player si crea una volta sola: ricrearlo a ogni brano fa perdere a iOS
+  // il permesso di riproduzione, e la coda si ferma alla fine del primo video.
+  const videoIdRef = useRef(videoId)
+  videoIdRef.current = videoId
+  const titleRef = useRef(title)
+  titleRef.current = title
+  const loadedIdRef = useRef<string | null>(null)
+
   // Le callback cambiano a ogni render: stanno in ref così il player non si ricrea.
   const endedRef = useRef(onEnded)
   endedRef.current = onEnded
@@ -152,9 +162,10 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
       const mount = document.createElement('div')
       host.current.appendChild(mount)
 
+      loadedIdRef.current = videoIdRef.current
       player.current = new window.YT!.Player(mount, {
-        videoId,
-        title,
+        videoId: videoIdRef.current,
+        title: titleRef.current,
         width: '100%',
         height: '100%',
         playerVars: {
@@ -199,9 +210,23 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
         // già smontato
       }
       player.current = null
+      loadedIdRef.current = null
       if (host.current) host.current.innerHTML = ''
     }
-  }, [title, videoId])
+  }, [])
+
+  // Cambio brano senza ricreare l'iframe: la sessione concessa dall'utente resta.
+  useEffect(() => {
+    const api = player.current
+    if (!api || loadedIdRef.current === videoId) return
+    loadedIdRef.current = videoId
+    setError(null)
+    try {
+      api.loadVideoById(videoId)
+    } catch {
+      // player non pronto: ci pensa onReady
+    }
+  }, [videoId])
 
   return (
     <div className={`yt__frame ${full ? 'yt__frame--full' : ''}`}>
