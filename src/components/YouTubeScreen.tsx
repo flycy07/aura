@@ -132,6 +132,7 @@ export function YouTubeScreen({
             className="ytnp__blocked"
             onClick={() => {
               setBlocked(false)
+              playerRef.current?.unmute()
               playerRef.current?.play()
             }}
           >

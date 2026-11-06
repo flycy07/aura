@@ -5,6 +5,9 @@ type PlayerInstance = {
   pauseVideo: () => void
   /** Cambia video nello stesso iframe: su iOS non richiede un nuovo tocco. */
   loadVideoById: (id: string) => void
+  mute: () => void
+  unMute: () => void
+  getPlayerState: () => number
   seekTo: (seconds: number, allowSeekAhead: boolean) => void
   getCurrentTime: () => number
   getDuration: () => number
@@ -25,6 +28,7 @@ declare global {
 export type YouTubePlayerHandle = {
   play: () => void
   pause: () => void
+  unmute: () => void
   seekTo: (seconds: number) => void
   getTime: () => number
   getDuration: () => number
@@ -109,6 +113,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
   stateRef.current = onPlayStateChange
   const blockedRef = useRef(onAutoplayBlocked)
   blockedRef.current = onAutoplayBlocked
+  const blockedIdRef = useRef<string | null>(null)
 
   useImperativeHandle(
     ref,
@@ -123,6 +128,13 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
       pause: () => {
         try {
           player.current?.pauseVideo()
+        } catch {
+          // player non pronto
+        }
+      },
+      unmute: () => {
+        try {
+          player.current?.unMute()
         } catch {
           // player non pronto
         }
@@ -204,8 +216,48 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
             setError(event.data ?? -1)
           },
           // iOS: la riproduzione automatica di un nuovo video viene bloccata.
+          // Safari però autorizza i media muti: si riparte senza audio e poi si
+          // alza il volume. Se anche questo fallisce, si chiede il tocco.
           onAutoplayBlocked: () => {
-            blockedRef.current?.()
+            const api = player.current
+            if (!api || blockedIdRef.current === videoIdRef.current) {
+              blockedRef.current?.()
+              return
+            }
+            blockedIdRef.current = videoIdRef.current
+            try {
+              api.mute()
+              api.playVideo()
+            } catch {
+              blockedRef.current?.()
+              return
+            }
+            window.setTimeout(() => {
+              const state = (() => {
+                try {
+                  return api.getPlayerState()
+                } catch {
+                  return -1
+                }
+              })()
+              if (state !== 1) {
+                blockedRef.current?.()
+                return
+              }
+              try {
+                api.unMute()
+              } catch {
+                blockedRef.current?.()
+              }
+              // Se togliere il muto ha fermato il video, serve il tocco.
+              window.setTimeout(() => {
+                try {
+                  if (api.getPlayerState() !== 1) blockedRef.current?.()
+                } catch {
+                  blockedRef.current?.()
+                }
+              }, 700)
+            }, 1200)
           },
         },
       })
@@ -231,6 +283,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
     const api = player.current
     if (!api || loadedIdRef.current === videoId) return
     loadedIdRef.current = videoId
+    blockedIdRef.current = null
     setError(null)
     try {
       api.loadVideoById(videoId)
