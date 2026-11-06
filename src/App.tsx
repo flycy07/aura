@@ -61,8 +61,6 @@ export default function App() {
   const [installHint, setInstallHint] = useState(readInstallHint)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // La sessione YouTube vive qui: quando la schermata si chiude il player resta
-  // montato (nascosto) e la riproduzione non si interrompe.
   const [yt, setYt] = useState<{ videos: YouTubeVideo[]; index: number } | null>(null)
   const [ytExpanded, setYtExpanded] = useState(true)
   const [ytPlaying, setYtPlaying] = useState(true)
@@ -71,12 +69,10 @@ export default function App() {
 
   const offline = useOfflineCache()
 
-  // Local files win over the streaming copy of the same track.
   const playableTracks = useMemo(() => {
     const map = new Map<string, Track>()
     for (const track of library.tracks) map.set(track.id, track)
     for (const track of catalogue) if (!map.has(track.id)) map.set(track.id, track)
-    // Le copertine in cache funzionano anche senza rete.
     return [...map.values()].map((track) =>
       offline.artUrls[track.id] ? { ...track, artUrl: offline.artUrls[track.id] } : track,
     )
@@ -103,7 +99,6 @@ export default function App() {
     [library],
   )
 
-  // Specular highlight follows the pointer across every glass surface.
   useEffect(() => {
     let frame = 0
     const onPointerMove = (event: PointerEvent) => {
@@ -125,19 +120,77 @@ export default function App() {
     }
   }, [])
 
+  // RIPRODUZIONE BRANO: Integrazione Deezer (metadati/copertina) + Backend yt-dlp (audio completo) + Media Session API (Sfondo)
   const playTrack = useCallback(
-    (track: Track, list: Track[]) => {
-      // Un solo audio alla volta: il video YouTube in sottofondo va in pausa.
+    async (track: Track, list: Track[]) => {
       if (yt && ytPlaying) {
         ytPlayer.current?.pause()
         setYtPlaying(false)
       }
-      // Messa da parte in sottofondo: nessun pulsante, nessuna domanda.
-      void offline.remember(track)
-      player.playQueue(
-        list.map((item) => item.id),
-        track.id,
-      )
+
+      let playTitle = track.title
+      let playArtist = track.artist || 'Artista Sconosciuto'
+      let playCoverUrl = track.artUrl || ''
+
+      try {
+        // 1. Recupero metadati puliti e copertina ufficiale via Deezer API
+        const deezerRes = await fetch(
+          `https://api.deezer.com/search?q=${encodeURIComponent(`${playArtist} ${playTitle}`)}`
+        )
+        const deezerData = await deezerRes.json()
+        if (deezerData.data && deezerData.data.length > 0) {
+          const match = deezerData.data[0]
+          playTitle = match.title
+          playArtist = match.artist.name
+          playCoverUrl = match.album.cover_big || playCoverUrl
+        }
+      } catch (e) {
+        console.error('Errore Deezer API:', e)
+      }
+
+      try {
+        // 2. Chiamata al backend per il flusso audio completo estratto con yt-dlp
+        const backendRes = await fetch(
+          `http://localhost:3000/api/stream?q=${encodeURIComponent(`${playArtist} ${playTitle}`)}`
+        )
+        const backendData = await backendRes.json()
+
+        const trackToPlay: Track = {
+          ...track,
+          title: playTitle,
+          artist: playArtist,
+          artUrl: playCoverUrl,
+          src: backendData.success && backendData.audioUrl ? backendData.audioUrl : track.src,
+        }
+
+        void offline.remember(trackToPlay)
+        player.playQueue(
+          list.map((item) => item.id),
+          trackToPlay.id,
+        )
+
+        // 3. Configurazione Media Session API per la riproduzione in background a schermo spento
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.metadata = new MediaMetadata({
+            title: playTitle,
+            artist: playArtist,
+            album: 'Aura',
+            artwork: playCoverUrl ? [{ src: playCoverUrl, sizes: '512x512', type: 'image/png' }] : [],
+          })
+
+          navigator.mediaSession.setActionHandler('play', () => player.togglePlay())
+          navigator.mediaSession.setActionHandler('pause', () => player.togglePlay())
+          navigator.mediaSession.setActionHandler('previoustrack', () => player.previous())
+          navigator.mediaSession.setActionHandler('nexttrack', () => player.next())
+        }
+      } catch (err) {
+        console.error('Errore nel recupero audio dal backend:', err)
+        void offline.remember(track)
+        player.playQueue(
+          list.map((item) => item.id),
+          track.id,
+        )
+      }
     },
     [offline, player, yt, ytPlaying],
   )
@@ -157,7 +210,6 @@ export default function App() {
       setYt({ videos, index })
       setYtExpanded(true)
       setYtPlaying(true)
-      // Un solo audio alla volta: la musica locale va in pausa.
       if (player.isPlaying) player.togglePlay()
     },
     [player],
@@ -195,7 +247,6 @@ export default function App() {
     return () => window.clearTimeout(timer)
   }, [notice])
 
-  /** Coda dei video: si allunga la sessione, che poi avanza da sola. */
   const enqueueYouTube = useCallback(
     (video: YouTubeVideo) => {
       if (!yt) {
@@ -213,11 +264,6 @@ export default function App() {
     [openYouTube, yt],
   )
 
-  /**
-   * Brani importati da Spotify: non esiste un flusso Spotify da riprodurre, quindi
-   * il brano viene cercato su YouTube la prima volta e il video trovato resta
-   * salvato nella playlist (le volte dopo partono subito).
-   */
   const playSpotifyTrack = useCallback(
     async (playlist: Playlist, index: number) => {
       const item = playlist.spotify?.tracks[index]
@@ -296,9 +342,7 @@ export default function App() {
                 setInstallHint(false)
                 try {
                   localStorage.setItem('aura-install-hint', 'dismissed')
-                } catch {
-                  /* memoria non disponibile: il suggerimento ricomparirà */
-                }
+                } catch {}
               }}
               aria-label="Chiudi il suggerimento"
             >
@@ -484,7 +528,6 @@ export default function App() {
           onNext={ytHasNext ? () => ytStep(1) : undefined}
           onPlayStateChange={setYtPlaying}
           onEnded={() => {
-            // Fine video: parte il successivo della coda, se c'è.
             if (ytHasNext) ytStep(1)
             else setYtPlaying(false)
           }}
