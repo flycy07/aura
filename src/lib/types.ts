@@ -61,6 +61,8 @@ export type SpotifyTrack = {
 export type SpotifyRef = {
   /** Link incollato dall'utente, riaperto con “Apri in Spotify”. */
   url?: string
+  /** Copertina della playlist, presa dall'oEmbed del link. */
+  artUrl?: string
   tracks: SpotifyTrack[]
 }
 

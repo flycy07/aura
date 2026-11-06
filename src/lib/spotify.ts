@@ -102,3 +102,31 @@ export function normaliseSpotifyLink(value: string): string {
   if (/^spotify:playlist:[A-Za-z0-9]+$/.test(trimmed)) return trimmed
   return ''
 }
+
+export type SpotifyLinkInfo = {
+  name: string
+  artUrl?: string
+}
+
+/**
+ * Nome e copertina dal link, con l'oEmbed pubblico di Spotify: risponde anche al
+ * browser (CORS `*`) e non chiede credenziali. I brani no: da febbraio 2026 la
+ * Web API li restituisce solo al proprietario o ai collaboratori della playlist.
+ */
+export async function fetchSpotifyLink(input: string): Promise<SpotifyLinkInfo | null> {
+  const link = normaliseSpotifyLink(input)
+  if (!link) return null
+  const url = link.startsWith('spotify:')
+    ? `https://open.spotify.com/${link.split(':')[1]}/${link.split(':')[2]}`
+    : link
+  try {
+    const response = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(url)}`)
+    if (!response.ok) return null
+    const payload = (await response.json()) as { title?: string; thumbnail_url?: string }
+    const name = payload.title?.trim()
+    if (!name) return null
+    return { name, artUrl: payload.thumbnail_url }
+  } catch {
+    return null
+  }
+}

@@ -13,7 +13,7 @@ Lettore musicale per iPhone sotto forma di PWA: cataloghi aperti, player YouTube
   - **YouTube**: ricerca tramite un Worker che custodisce la chiave, riproduzione con la IFrame Player API ufficiale.
 - **Brani** — importi MP3, M4A/ALAC, FLAC, WAV, AIFF, OGG/Opus dal selettore file di iOS; tag e copertine letti da un parser ID3v2.3/2.4, MP4 e FLAC scritto a mano. Restano in IndexedDB, niente upload.
 - **Album e playlist** — album raggruppati per copertina; playlist create a mano che possono contenere **sia brani sia video YouTube**.
-- **Playlist da Spotify** — si incolla il link e la lista dei brani una riga per brano; la playlist resta salvata sul dispositivo e il link serve per riaprirla in Spotify. Ogni brano è cercato su YouTube alla prima riproduzione, poi il video trovato resta memorizzato. Il perché del copia-incolla è spiegato più sotto.
+- **Playlist da Spotify** — dal link si ricavano automaticamente nome e copertina (oEmbed pubblico), poi si incolla la lista dei brani una riga per brano; la playlist resta salvata sul dispositivo e il link serve per riaprirla in Spotify. Ogni brano è cercato su YouTube nella prima riproduzione, poi il video trovato resta memorizzato. Il perché la scaletta va incollata è spiegato più sotto.
 - **Offline automatico** — non c'è un pulsante di download: ogni brano che avvii viene copiato in IndexedDB in sottofondo (copertina inclusa) e dalla volta dopo suona senza rete. Tetto 500 MB con rimozione LRU. L'interfaccia funziona offline dopo il primo caricamento.
 - **Player** — coda, shuffle, ripetizione, seek, volume, Media Session (comandi da schermo bloccato e Centro di Controllo), mini barra. I video YouTube hanno una coda propria e avanzano da soli a fine video; il player si può ridurre continuando la riproduzione.
 
@@ -37,7 +37,9 @@ Estrarre il flusso audio di YouTube aggirerebbe il limite, ma viola i Termini di
 
 ### Spotify: perché si incolla la lista
 
-Da febbraio 2026 la Web API di Spotify restituisce i brani di una playlist **solo al proprietario o ai collaboratori**; per una playlist pubblica di un altro arrivano nome e copertina, non le tracce. In più le app in modalità sviluppo richiedono che il proprietario abbia Premium. Un import “incollo il link e basta” non è quindi realizzabile con l'API ufficiale, e Aura non usa scraper non ufficiali. Da qui la scelta: il link si salva come riferimento, i brani si incollano (massimo 300) e la ricerca su YouTube avviene al primo ascolto.
+Da febbraio 2026 la Web API di Spotify restituisce i brani di una playlist **solo al proprietario o ai collaboratori**; per una playlist pubblica di un altro arrivano nome e copertina, non le tracce. In più le app in modalità sviluppo richiedono che il proprietario abbia Premium. Un import “incollo il link e basta” non è quindi realizzabile con l'API ufficiale, e Aura non usa scraper non ufficiali.
+
+Da qui la scelta: dal link si prendono nome e copertina con l'oEmbed pubblico (`https://open.spotify.com/oembed`, risponde con CORS `*` e senza credenziali), i brani si incollano (massimo 300) e la ricerca su YouTube avviene al primo ascolto. Se serve l'import completo delle **proprie** playlist servirebbe un accesso OAuth dell'utente (Authorization Code + PKCE) con un'app Spotify dedicata, non ancora implementato.
 
 ## Stack
 
@@ -116,7 +118,7 @@ src/
   lib/jamendo.ts           catalogo Jamendo
   lib/radio.ts             stazioni radio-browser
   lib/youtube.ts           client dell'endpoint /api/youtube-search
-  lib/spotify.ts           parser della lista incollata da Spotify
+  lib/spotify.ts           link Spotify (nome e copertina) e parser della lista incollata
   lib/cache.ts, lib/db.ts  IndexedDB della libreria e cache offline (LRU 500 MB)
   lib/tags.ts              parser ID3 / MP4 / FLAC
   lib/colors.ts            colore dominante dalla copertina

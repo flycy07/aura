@@ -316,13 +316,13 @@ export function useLibrary() {
    * su questo dispositivo e i brani non hanno audio proprio (vedi lib/spotify).
    */
   const createSpotifyPlaylist = useCallback(
-    async (input: { name: string; url?: string; tracks: SpotifyTrack[] }) => {
+    async (input: { name: string; url?: string; artUrl?: string; tracks: SpotifyTrack[] }) => {
       const playlist: Playlist = {
         id: crypto.randomUUID(),
         name: input.name.trim() || 'Playlist Spotify',
         trackIds: [],
         videos: [],
-        spotify: { url: input.url, tracks: input.tracks },
+        spotify: { url: input.url, artUrl: input.artUrl, tracks: input.tracks },
         createdAt: Date.now(),
         updatedAt: Date.now(),
       }

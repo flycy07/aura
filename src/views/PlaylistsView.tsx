@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { formatTime, pluralise } from '../lib/format'
-import { MAX_TRACKS, normaliseSpotifyLink, parseTracklist } from '../lib/spotify'
+import { MAX_TRACKS, fetchSpotifyLink, normaliseSpotifyLink, parseTracklist } from '../lib/spotify'
+import type { SpotifyLinkInfo } from '../lib/spotify'
 import type { Playlist, PlaylistVideo, SpotifyTrack, Track } from '../lib/types'
 import { ChevronLeftIcon, ListIcon, PlayIcon, PlusIcon, TrashIcon } from '../components/Icons'
 import { TrackRow } from '../components/TrackRow'
@@ -18,7 +19,12 @@ type Props = {
   /** Apre la schermata player YouTube sulla coda scelta. */
   onOpenVideo: (videos: PlaylistVideo[], index: number) => void
   /** Importa la lista incollata da Spotify (link + tracce). */
-  onImportSpotify: (input: { name: string; url?: string; tracks: SpotifyTrack[] }) => Promise<Playlist>
+  onImportSpotify: (input: {
+    name: string
+    url?: string
+    artUrl?: string
+    tracks: SpotifyTrack[]
+  }) => Promise<Playlist>
   /** Riproduce un brano importato da Spotify: la ricerca YouTube la fa l'app. */
   onPlaySpotify: (playlist: Playlist, index: number) => void
   /** Elimina la playlist (i brani della libreria non si toccano). */
@@ -49,6 +55,8 @@ export function PlaylistsView({
   const [importText, setImportText] = useState('')
   const [importError, setImportError] = useState('')
   const [importing, setImporting] = useState(false)
+  const [linkInfo, setLinkInfo] = useState<SpotifyLinkInfo | null>(null)
+  const [linkBusy, setLinkBusy] = useState(false)
 
   const byId = new Map(tracks.map((track) => [track.id, track]))
   const playlist = openId ? playlists.find((item) => item.id === openId) : undefined
@@ -59,6 +67,30 @@ export function PlaylistsView({
   const spotifyTracks = playlist?.spotify?.tracks ?? []
   const total = playlistTracks.length + playlistVideos.length + spotifyTracks.length
   const parsed = importOpen ? parseTracklist(importText) : []
+
+  // Dal link arrivano subito nome e copertina; i brani no (vedi submitImport).
+  useEffect(() => {
+    const link = normaliseSpotifyLink(importLink)
+    setLinkInfo(null)
+    if (!link) {
+      setLinkBusy(false)
+      return
+    }
+    let cancelled = false
+    setLinkBusy(true)
+    const timer = window.setTimeout(() => {
+      void fetchSpotifyLink(link).then((info) => {
+        if (cancelled) return
+        setLinkInfo(info)
+        setLinkBusy(false)
+        if (info?.name) setImportName((current) => current.trim() || info.name)
+      })
+    }, 400)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [importLink])
 
   const submit = async () => {
     const trimmed = name.trim()
@@ -76,14 +108,19 @@ export function PlaylistsView({
       return
     }
     if (!parsed.length) {
-      setImportError('Nessun brano riconosciuto: scrivi una riga per brano, ad esempio “Artista - Titolo”.')
+      setImportError(
+        link
+          ? 'Dal link leggo nome e copertina, ma non la scaletta: Spotify restituisce i brani solo a chi possiede la playlist. Incollala qui sopra, una riga per brano.'
+          : 'Nessun brano riconosciuto: scrivi una riga per brano, ad esempio “Artista - Titolo”.',
+      )
       return
     }
     setImporting(true)
     try {
       const created = await onImportSpotify({
-        name: importName.trim() || 'Playlist Spotify',
+        name: importName.trim() || linkInfo?.name || 'Playlist Spotify',
         url: link || undefined,
+        artUrl: linkInfo?.artUrl,
         tracks: parsed,
       })
       setImportOpen(false)
@@ -112,6 +149,8 @@ export function PlaylistsView({
               <img src={playlistVideos[0].thumb} alt="" />
             ) : spotifyTracks[0]?.thumb ? (
               <img src={spotifyTracks[0].thumb} alt="" />
+            ) : playlist.spotify?.artUrl ? (
+              <img src={playlist.spotify.artUrl} alt="" />
             ) : (
               <ListIcon size={44} />
             )}
@@ -307,6 +346,12 @@ export function PlaylistsView({
             inputMode="url"
             autoComplete="off"
           />
+          {(linkBusy || linkInfo) && (
+            <div className="sp-import__linkinfo">
+              {linkInfo?.artUrl ? <img src={linkInfo.artUrl} alt="" /> : null}
+              <span>{linkBusy ? 'Leggo il link…' : `Trovata: ${linkInfo?.name}`}</span>
+            </div>
+          )}
           <label className="sp-import__label" htmlFor="sp-tracks">
             Lista dei brani, una riga per brano
           </label>
@@ -320,9 +365,10 @@ export function PlaylistsView({
             spellCheck={false}
           />
           <p className="menu__hint">
-            Spotify non condivide con le altre app i brani delle playlist pubbliche: la lista va
-            incollata (massimo {MAX_TRACKS} brani). Il link resta salvato come riferimento. Ogni
-            brano viene cercato e riprodotto dal player YouTube ufficiale.
+            Dal link ricavo nome e copertina della playlist. La scaletta invece va incollata
+            (massimo {MAX_TRACKS} brani): da febbraio 2026 Spotify restituisce i brani di una
+            playlist solo a chi la possiede. Ogni brano viene cercato e riprodotto dal player
+            YouTube ufficiale.
           </p>
           <input
             className="create-card__input"
@@ -349,7 +395,7 @@ export function PlaylistsView({
               <button
                 className="primary-btn primary-btn--small"
                 onClick={() => void submitImport()}
-                disabled={importing || !parsed.length}
+                disabled={importing}
               >
                 {importing ? 'Importo…' : 'Importa'}
               </button>

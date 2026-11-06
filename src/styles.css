@@ -1001,6 +1001,23 @@ img {
   color: var(--muted);
 }
 
+.sp-import__linkinfo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.sp-import__linkinfo img {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 8px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .sp-import__area {
   resize: vertical;
   min-height: 132px;
