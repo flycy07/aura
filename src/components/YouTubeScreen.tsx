@@ -60,6 +60,7 @@ export function YouTubeScreen({
 }: Props) {
   const [position, setPosition] = useState(0)
   const [duration, setDuration] = useState(video.seconds)
+  const [blocked, setBlocked] = useState(false)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [feedback, setFeedback] = useState('')
@@ -75,6 +76,7 @@ export function YouTubeScreen({
   useEffect(() => {
     setPosition(0)
     setDuration(video.seconds)
+    setBlocked(false)
   }, [video.id, video.seconds])
 
   useEffect(() => {
@@ -115,14 +117,34 @@ export function YouTubeScreen({
       </header>
 
       {/* Nessuna key: il player resta lo stesso a ogni brano, così iOS continua da solo. */}
-      <YouTubePlayer
-        ref={playerRef}
-        videoId={video.id}
-        title={video.title}
-        full
-        onEnded={onEnded}
-        onPlayStateChange={onPlayStateChange}
-      />
+      <div className="ytnp__stage">
+        <YouTubePlayer
+          ref={playerRef}
+          videoId={video.id}
+          title={video.title}
+          full
+          onEnded={onEnded}
+          onPlayStateChange={onPlayStateChange}
+          onAutoplayBlocked={() => setBlocked(true)}
+        />
+        {blocked && (
+          <button
+            className="ytnp__blocked"
+            onClick={() => {
+              setBlocked(false)
+              playerRef.current?.play()
+            }}
+          >
+            <span className="ytnp__blocked-icon">
+              <PlayIcon size={26} />
+            </span>
+            <span>Tocca per far partire il brano</span>
+            <span className="ytnp__blocked-hint">
+              iOS non consente la partenza automatica dei video incorporati
+            </span>
+          </button>
+        )}
+      </div>
 
       <div className="ytnp__row">
         {coverUrl && <img className="ytnp__art" src={coverUrl} alt="" />}

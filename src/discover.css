@@ -362,6 +362,48 @@
   gap: 10px;
 }
 
+.ytnp__stage {
+  position: relative;
+}
+
+/* iOS blocca la partenza automatica dei video incorporati: meglio dirlo che
+   lasciare il player fermo su un fotogramma. */
+.ytnp__blocked {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px;
+  border: 0;
+  border-radius: 18px;
+  background: rgba(8, 8, 12, 0.72);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.ytnp__blocked-icon {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.ytnp__blocked-hint {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.66);
+  max-width: 240px;
+}
+
 .ytnp__badge {
   display: inline-flex;
   align-items: center;

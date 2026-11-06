@@ -75,6 +75,11 @@ type Props = {
   onEnded?: () => void
   /** Stato play/pausa reale del player ufficiale (anche se messo in pausa da YouTube). */
   onPlayStateChange?: (playing: boolean) => void
+  /**
+   * Il browser ha rifiutato la riproduzione automatica (iOS lo fa sempre con
+   * gli iframe): serve un tocco dell'utente.
+   */
+  onAutoplayBlocked?: () => void
 }
 
 /**
@@ -82,7 +87,7 @@ type Props = {
  * l'origine della pagina, così YouTube non rifiuta la riproduzione.
  */
 export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function YouTubePlayer(
-  { videoId, title, full, onEnded, onPlayStateChange },
+  { videoId, title, full, onEnded, onPlayStateChange, onAutoplayBlocked },
   ref,
 ) {
   const host = useRef<HTMLDivElement | null>(null)
@@ -102,6 +107,8 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
   endedRef.current = onEnded
   const stateRef = useRef(onPlayStateChange)
   stateRef.current = onPlayStateChange
+  const blockedRef = useRef(onAutoplayBlocked)
+  blockedRef.current = onAutoplayBlocked
 
   useImperativeHandle(
     ref,
@@ -195,6 +202,10 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
           },
           onError: (event: PlayerEvent) => {
             setError(event.data ?? -1)
+          },
+          // iOS: la riproduzione automatica di un nuovo video viene bloccata.
+          onAutoplayBlocked: () => {
+            blockedRef.current?.()
           },
         },
       })
