@@ -120,79 +120,82 @@ export default function App() {
     }
   }, [])
 
-  // RIPRODUZIONE BRANO: Integrazione Deezer (metadati/copertina) + Backend yt-dlp (audio completo) + Media Session API (Sfondo)
+  /**
+   * Copertina ufficiale e titoli puliti dell'album, senza passare dai video: la
+   * ricerca iTunes risponde al browser direttamente (Deezer no, manca il CORS e
+   * servirebbe un proxy). Se la ricerca fallisce si tiene quello che c'è già.
+   */
+  const lookupOfficialCover = useCallback(async (artist: string, title: string) => {
+    const term = `${artist} ${title}`.trim()
+    if (!term) return null
+    try {
+      const response = await fetch(
+        `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=1`,
+      )
+      if (!response.ok) return null
+      const payload = (await response.json()) as {
+        results?: {
+          trackName?: string
+          artistName?: string
+          collectionName?: string
+          artworkUrl100?: string
+        }[]
+      }
+      const hit = payload.results?.[0]
+      if (!hit) return null
+      return {
+        title: hit.trackName?.trim() || title,
+        artist: hit.artistName?.trim() || artist,
+        album: hit.collectionName?.trim(),
+        artUrl: hit.artworkUrl100?.replace('100x100', '600x600'),
+      }
+    } catch {
+      // Rete assente o Apple giù: si continua con i metadati del brano.
+      return null
+    }
+  }, [])
+
+  /**
+   * Un solo audio alla volta: il player usa un elemento audio nativo, che è
+   * quello che continua a suonare con il telefono bloccato.
+   */
   const playTrack = useCallback(
-    async (track: Track, list: Track[]) => {
+    (track: Track, list: Track[]) => {
       if (yt && ytPlaying) {
         ytPlayer.current?.pause()
         setYtPlaying(false)
       }
+      void offline.remember(track)
+      player.playQueue(
+        list.map((item) => item.id),
+        track.id,
+      )
 
-      let playTitle = track.title
-      let playArtist = track.artist || 'Artista Sconosciuto'
-      let playCoverUrl = track.artUrl || ''
-
-      try {
-        // 1. Recupero metadati puliti e copertina ufficiale via Deezer API
-        const deezerRes = await fetch(
-          `https://api.deezer.com/search?q=${encodeURIComponent(`${playArtist} ${playTitle}`)}`
-        )
-        const deezerData = await deezerRes.json()
-        if (deezerData.data && deezerData.data.length > 0) {
-          const match = deezerData.data[0]
-          playTitle = match.title
-          playArtist = match.artist.name
-          playCoverUrl = match.album.cover_big || playCoverUrl
+      // La copertina arriva dopo l'avvio: la riproduzione non aspetta la rete.
+      void lookupOfficialCover(track.artist, track.title).then((meta) => {
+        if (!meta) return
+        if (meta.artUrl) {
+          rememberCatalogueTracks([
+            {
+              ...track,
+              title: meta.title,
+              artist: meta.artist,
+              album: meta.album || track.album,
+              artUrl: meta.artUrl,
+            },
+          ])
         }
-      } catch (e) {
-        console.error('Errore Deezer API:', e)
-      }
-
-      try {
-        // 2. Chiamata al backend per il flusso audio completo estratto con yt-dlp
-        const backendRes = await fetch(
-          `http://localhost:3000/api/stream?q=${encodeURIComponent(`${playArtist} ${playTitle}`)}`
-        )
-        const backendData = await backendRes.json()
-
-        const trackToPlay: Track = {
-          ...track,
-          title: playTitle,
-          artist: playArtist,
-          artUrl: playCoverUrl,
-          src: backendData.success && backendData.audioUrl ? backendData.audioUrl : track.src,
-        }
-
-        void offline.remember(trackToPlay)
-        player.playQueue(
-          list.map((item) => item.id),
-          trackToPlay.id,
-        )
-
-        // 3. Configurazione Media Session API per la riproduzione in background a schermo spento
-        if ('mediaSession' in navigator) {
-          navigator.mediaSession.metadata = new MediaMetadata({
-            title: playTitle,
-            artist: playArtist,
-            album: 'Aura',
-            artwork: playCoverUrl ? [{ src: playCoverUrl, sizes: '512x512', type: 'image/png' }] : [],
-          })
-
-          navigator.mediaSession.setActionHandler('play', () => player.togglePlay())
-          navigator.mediaSession.setActionHandler('pause', () => player.togglePlay())
-          navigator.mediaSession.setActionHandler('previoustrack', () => player.previous())
-          navigator.mediaSession.setActionHandler('nexttrack', () => player.next())
-        }
-      } catch (err) {
-        console.error('Errore nel recupero audio dal backend:', err)
-        void offline.remember(track)
-        player.playQueue(
-          list.map((item) => item.id),
-          track.id,
-        )
-      }
+        if (!('mediaSession' in navigator) || player.currentTrackId !== track.id) return
+        const artwork = meta.artUrl ?? track.artUrl
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: meta.title,
+          artist: meta.artist,
+          album: meta.album || track.album,
+          artwork: artwork ? [{ src: artwork, sizes: '600x600', type: 'image/jpeg' }] : [],
+        })
+      })
     },
-    [offline, player, yt, ytPlaying],
+    [lookupOfficialCover, offline, player, rememberCatalogueTracks, yt, ytPlaying],
   )
 
   const createPlaylistWithTrack = useCallback(async () => {
