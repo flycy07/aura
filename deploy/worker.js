@@ -4,16 +4,18 @@
 
 const API = 'https://www.googleapis.com/youtube/v3'
 const LIMIT_PER_MINUTE = 30
+const COVER_LIMIT_PER_MINUTE = 60
 
 const hits = new Map()
+const coverHits = new Map()
 
-function rateLimited(ip) {
+function rateLimited(ip, limit = LIMIT_PER_MINUTE, store = hits) {
   const now = Date.now()
-  const recent = (hits.get(ip) ?? []).filter((time) => now - time < 60_000)
+  const recent = (store.get(ip) ?? []).filter((time) => now - time < 60_000)
   recent.push(now)
-  hits.set(ip, recent)
-  if (hits.size > 5000) hits.clear()
-  return recent.length > LIMIT_PER_MINUTE
+  store.set(ip, recent)
+  if (store.size > 5000) store.clear()
+  return recent.length > limit
 }
 
 function json(body, status = 200) {
@@ -99,6 +101,27 @@ async function searchYouTube(key, term) {
   }
 }
 
+/**
+ * Copertina ufficiale del brano. Deezer ha il catalogo che serve, ma non manda
+ * gli header CORS: dal browser la chiamata va fatta passare di qui.
+ */
+async function searchCover(term) {
+  const response = await fetch(
+    `https://api.deezer.com/search?q=${encodeURIComponent(term)}&limit=1`,
+  )
+  const payload = await response.json().catch(() => null)
+  const hit = payload?.data?.[0]
+  if (!response.ok || payload?.error || !hit) return null
+  const artUrl = hit.album?.cover_xl ?? hit.album?.cover_big ?? hit.album?.cover_medium
+  if (!artUrl) return null
+  return {
+    title: hit.title ?? '',
+    artist: hit.artist?.name ?? '',
+    album: hit.album?.title ?? '',
+    artUrl,
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url)
@@ -134,6 +157,31 @@ export default {
         return json({ error: 'upstream_error' }, 502)
       }
       return json(result.data)
+    }
+
+    if (url.pathname === '/api/cover') {
+      if (request.method !== 'GET') return json({ error: 'method_not_allowed' }, 405)
+
+      const origin = request.headers.get('origin')
+      if (origin) {
+        try {
+          if (new URL(origin).host !== url.host) return json({ error: 'forbidden_origin' }, 403)
+        } catch {
+          return json({ error: 'forbidden_origin' }, 403)
+        }
+      }
+      const site = request.headers.get('sec-fetch-site')
+      if (site && site !== 'same-origin' && site !== 'none') return json({ error: 'forbidden_origin' }, 403)
+
+      const ip = request.headers.get('cf-connecting-ip') ?? 'anonimo'
+      if (rateLimited(ip, COVER_LIMIT_PER_MINUTE, coverHits)) return json({ error: 'rate_limited' }, 429)
+
+      const term = (url.searchParams.get('q') ?? '').trim().slice(0, 120)
+      if (!term) return json({ error: 'missing_query' }, 400)
+
+      const cover = await searchCover(term)
+      if (!cover) return json({ error: 'not_found' }, 404)
+      return json(cover)
     }
 
     return env.ASSETS.fetch(request)

@@ -122,7 +122,6 @@ export default function App() {
   }, [])
 
   /**
-  /**
    * Un solo audio alla volta: il player usa un elemento audio nativo, che è
    * quello che continua a suonare con il telefono bloccato.
    */
@@ -139,26 +138,17 @@ export default function App() {
       )
 
       // La copertina arriva dopo l'avvio: la riproduzione non aspetta la rete.
-      void lookupCover(`${track.artist} ${track.title}`).then((meta) => {
-        if (!meta) return
-        if (meta.artUrl) {
-          rememberCatalogueTracks([
-            {
-              ...track,
-              title: meta.title,
-              artist: meta.artist,
-              album: meta.album || track.album,
-              artUrl: meta.artUrl,
-            },
-          ])
-        }
+      // Titolo e artista restano quelli del brano: i cataloghi li riscrivono
+      // (“Quanno Chiove (Remastered 2008)”) e sporcherebbero la libreria.
+      void lookupCover(`${track.artist} ${track.title}`).then((cover) => {
+        if (!cover?.artUrl) return
+        rememberCatalogueTracks([{ ...track, artUrl: cover.artUrl }])
         if (!('mediaSession' in navigator) || player.currentTrackId !== track.id) return
-        const artwork = meta.artUrl ?? track.artUrl
         navigator.mediaSession.metadata = new MediaMetadata({
-          title: meta.title,
-          artist: meta.artist,
-          album: meta.album || track.album,
-          artwork: artwork ? [{ src: artwork, sizes: '600x600', type: 'image/jpeg' }] : [],
+          title: track.title,
+          artist: track.artist || 'Aura',
+          album: track.album,
+          artwork: [{ src: cover.artUrl, sizes: '600x600', type: 'image/jpeg' }],
         })
       })
     },

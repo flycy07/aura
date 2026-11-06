@@ -20,14 +20,36 @@ export function cleanVideoTitle(raw: string): string {
     .trim()
 }
 
+/** Deezer via Worker: catalogo più completo, ma senza CORS va chiesto al server. */
+async function lookupFromWorker(query: string): Promise<CoverInfo | null> {
+  try {
+    const response = await fetch(`/api/cover?q=${encodeURIComponent(query)}`)
+    if (!response.ok) return null
+    const payload = (await response.json()) as Partial<CoverInfo>
+    if (!payload?.artUrl) return null
+    return {
+      title: payload.title || query,
+      artist: payload.artist ?? '',
+      album: payload.album,
+      artUrl: payload.artUrl,
+    }
+  } catch {
+    // In sviluppo non c'è il Worker (arriva l'index.html): si passa ad Apple.
+    return null
+  }
+}
+
 /**
- * Copertina ufficiale del brano dall'Apple Music/iTunes Store: è l'unica ricerca
- * dei grandi cataloghi che risponde al browser senza proxy (Deezer non manda il
- * CORS, e servirebbe un server che faccia da tramite).
+ * Copertina ufficiale del brano: prima Deezer dal Worker, poi la ricerca Apple,
+ * che risponde al browser anche senza server.
  */
 export async function lookupCover(term: string): Promise<CoverInfo | null> {
   const query = term.trim()
   if (!query) return null
+  return (await lookupFromWorker(query)) ?? (await lookupFromItunes(query))
+}
+
+async function lookupFromItunes(query: string): Promise<CoverInfo | null> {
   try {
     const response = await fetch(
       `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&entity=song&limit=1`,
