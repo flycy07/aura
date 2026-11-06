@@ -42,12 +42,36 @@ export type PlaylistVideo = {
   thumb: string
 }
 
+/**
+ * Branco importato da una playlist Spotify. Non contiene audio: Spotify non
+ * distribuisce i suoi flussi ad altre app, quindi la riproduzione passa dal
+ * player YouTube, che viene cercato alla prima riproduzione.
+ */
+export type SpotifyTrack = {
+  id: string
+  title: string
+  artist: string
+  /** Video YouTube trovato per questo brano: evita di ripetere la ricerca. */
+  videoId?: string
+  seconds?: number
+  thumb?: string
+}
+
+/** Riferimento alla playlist Spotify da cui è stata importata la lista. */
+export type SpotifyRef = {
+  /** Link incollato dall'utente, riaperto con “Apri in Spotify”. */
+  url?: string
+  tracks: SpotifyTrack[]
+}
+
 export type Playlist = {
   id: string
   name: string
   trackIds: string[]
   /** Video YouTube della playlist, oltre ai brani della libreria. */
   videos: PlaylistVideo[]
+  /** Brani importati incollando la lista di una playlist Spotify. */
+  spotify?: SpotifyRef
   createdAt: number
   updatedAt: number
 }

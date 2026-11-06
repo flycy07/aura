@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { formatTime, pluralise } from '../lib/format'
-import type { Playlist, PlaylistVideo, Track } from '../lib/types'
+import { MAX_TRACKS, normaliseSpotifyLink, parseTracklist } from '../lib/spotify'
+import type { Playlist, PlaylistVideo, SpotifyTrack, Track } from '../lib/types'
 import { ChevronLeftIcon, ListIcon, PlayIcon, PlusIcon, TrashIcon } from '../components/Icons'
 import { TrackRow } from '../components/TrackRow'
 
@@ -16,6 +17,12 @@ type Props = {
   onRemoveFromPlaylist: (playlistId: string, trackId: string) => void
   /** Apre la schermata player YouTube sulla coda scelta. */
   onOpenVideo: (videos: PlaylistVideo[], index: number) => void
+  /** Importa la lista incollata da Spotify (link + tracce). */
+  onImportSpotify: (input: { name: string; url?: string; tracks: SpotifyTrack[] }) => Promise<Playlist>
+  /** Riproduce un brano importato da Spotify: la ricerca YouTube la fa l'app. */
+  onPlaySpotify: (playlist: Playlist, index: number) => void
+  /** Elimina la playlist (i brani della libreria non si toccano). */
+  onDeletePlaylist: (playlistId: string) => void
 }
 
 export function PlaylistsView({
@@ -29,10 +36,19 @@ export function PlaylistsView({
   onToggleVideo,
   onRemoveFromPlaylist,
   onOpenVideo,
+  onImportSpotify,
+  onPlaySpotify,
+  onDeletePlaylist,
 }: Props) {
   const [openId, setOpenId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
+  const [importOpen, setImportOpen] = useState(false)
+  const [importLink, setImportLink] = useState('')
+  const [importName, setImportName] = useState('')
+  const [importText, setImportText] = useState('')
+  const [importError, setImportError] = useState('')
+  const [importing, setImporting] = useState(false)
 
   const byId = new Map(tracks.map((track) => [track.id, track]))
   const playlist = openId ? playlists.find((item) => item.id === openId) : undefined
@@ -40,7 +56,9 @@ export function PlaylistsView({
     ? playlist.trackIds.map((id) => byId.get(id)).filter((track): track is Track => Boolean(track))
     : []
   const playlistVideos = playlist?.videos ?? []
-  const total = playlistTracks.length + playlistVideos.length
+  const spotifyTracks = playlist?.spotify?.tracks ?? []
+  const total = playlistTracks.length + playlistVideos.length + spotifyTracks.length
+  const parsed = importOpen ? parseTracklist(importText) : []
 
   const submit = async () => {
     const trimmed = name.trim()
@@ -48,6 +66,36 @@ export function PlaylistsView({
     await onCreate(trimmed)
     setName('')
     setCreating(false)
+  }
+
+  const submitImport = async () => {
+    setImportError('')
+    const link = normaliseSpotifyLink(importLink)
+    if (importLink.trim() && !link) {
+      setImportError('Il link non sembra una playlist Spotify: incolla un indirizzo open.spotify.com/playlist/…')
+      return
+    }
+    if (!parsed.length) {
+      setImportError('Nessun brano riconosciuto: scrivi una riga per brano, ad esempio “Artista - Titolo”.')
+      return
+    }
+    setImporting(true)
+    try {
+      const created = await onImportSpotify({
+        name: importName.trim() || 'Playlist Spotify',
+        url: link || undefined,
+        tracks: parsed,
+      })
+      setImportOpen(false)
+      setImportLink('')
+      setImportName('')
+      setImportText('')
+      setOpenId(created.id)
+    } catch {
+      setImportError('Importazione non riuscita: riprova.')
+    } finally {
+      setImporting(false)
+    }
   }
 
   if (playlist) {
@@ -62,6 +110,8 @@ export function PlaylistsView({
               <img src={playlistTracks[0].artUrl} alt="" />
             ) : playlistVideos[0]?.thumb ? (
               <img src={playlistVideos[0].thumb} alt="" />
+            ) : spotifyTracks[0]?.thumb ? (
+              <img src={spotifyTracks[0].thumb} alt="" />
             ) : (
               <ListIcon size={44} />
             )}
@@ -72,17 +122,40 @@ export function PlaylistsView({
             {playlistVideos.length > 0 && playlistTracks.length > 0
               ? ` · ${playlistVideos.length} da YouTube`
               : ''}
+            {spotifyTracks.length > 0 ? ` · ${spotifyTracks.length} da Spotify` : ''}
           </p>
           {total > 0 && (
             <button
               className="primary-btn glass glass--thick"
               onClick={() => {
                 if (playlistTracks.length > 0) onPlay(playlistTracks[0], playlistTracks)
-                else onOpenVideo(playlistVideos, 0)
+                else if (playlistVideos.length > 0) onOpenVideo(playlistVideos, 0)
+                else onPlaySpotify(playlist, 0)
               }}
             >
               <PlayIcon size={18} /> Riproduci
             </button>
+          )}
+          <button
+            className="ghost-btn playlist-hero__delete"
+            onClick={() => {
+              if (window.confirm(`Eliminare “${playlist.name}”? I brani della libreria restano.`)) {
+                onDeletePlaylist(playlist.id)
+                setOpenId(null)
+              }
+            }}
+          >
+            <TrashIcon size={16} /> Elimina playlist
+          </button>
+          {playlist.spotify?.url && (
+            <a
+              className="ghost-btn playlist-hero__link"
+              href={playlist.spotify.url.replace(/^spotify:playlist:/, 'https://open.spotify.com/playlist/')}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Apri in Spotify
+            </a>
           )}
         </div>
 
@@ -145,6 +218,37 @@ export function PlaylistsView({
                 ))}
               </div>
             )}
+
+            {spotifyTracks.length > 0 && (
+              <div className="list glass glass--thick">
+                <p className="sp-list__head">
+                  <span className="sp-badge">Spotify</span>
+                  Riproduzione tramite YouTube, cercata al primo ascolto
+                </p>
+                {spotifyTracks.map((item, index) => (
+                  <button
+                    key={item.id}
+                    className="sp-row"
+                    onClick={() => onPlaySpotify(playlist, index)}
+                    aria-label={`Riproduci ${item.title} di ${item.artist}`}
+                  >
+                    <span className="sp-row__index">{index + 1}</span>
+                    {item.thumb ? (
+                      <img className="yt-row__thumb" src={item.thumb} alt="" loading="lazy" />
+                    ) : (
+                      <span className="yt-row__thumb sp-row__thumb-empty" aria-hidden="true" />
+                    )}
+                    <span className="yt-row__text">
+                      <span className="yt-row__title">{item.title}</span>
+                      <span className="yt-row__sub">
+                        {item.artist || 'Artista non indicato'}
+                        {item.seconds ? ` · ${formatTime(item.seconds)}` : ''}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -189,6 +293,80 @@ export function PlaylistsView({
         </button>
       )}
 
+      {importOpen ? (
+        <div className="create-card glass glass--thick sp-import">
+          <label className="sp-import__label" htmlFor="sp-link">
+            Link della playlist Spotify
+          </label>
+          <input
+            id="sp-link"
+            className="create-card__input"
+            value={importLink}
+            onChange={(event) => setImportLink(event.target.value)}
+            placeholder="https://open.spotify.com/playlist/…"
+            inputMode="url"
+            autoComplete="off"
+          />
+          <label className="sp-import__label" htmlFor="sp-tracks">
+            Lista dei brani, una riga per brano
+          </label>
+          <textarea
+            id="sp-tracks"
+            className="create-card__input sp-import__area"
+            value={importText}
+            onChange={(event) => setImportText(event.target.value)}
+            placeholder={'Artista - Titolo\nArtista - Titolo'}
+            rows={7}
+            spellCheck={false}
+          />
+          <p className="menu__hint">
+            Spotify non condivide con le altre app i brani delle playlist pubbliche: la lista va
+            incollata (massimo {MAX_TRACKS} brani). Il link resta salvato come riferimento. Ogni
+            brano viene cercato e riprodotto dal player YouTube ufficiale.
+          </p>
+          <input
+            className="create-card__input"
+            value={importName}
+            onChange={(event) => setImportName(event.target.value)}
+            placeholder="Nome della playlist (facoltativo)"
+            aria-label="Nome della playlist importata"
+            maxLength={60}
+          />
+          <div className="sp-import__foot">
+            <span className="sp-import__count">
+              {parsed.length ? `${pluralise(parsed.length, 'brano riconosciuto', 'brani riconosciuti')}` : '—'}
+            </span>
+            <div className="create-card__actions">
+              <button
+                className="ghost-btn"
+                onClick={() => {
+                  setImportOpen(false)
+                  setImportError('')
+                }}
+              >
+                Annulla
+              </button>
+              <button
+                className="primary-btn primary-btn--small"
+                onClick={() => void submitImport()}
+                disabled={importing || !parsed.length}
+              >
+                {importing ? 'Importo…' : 'Importa'}
+              </button>
+            </div>
+          </div>
+          {importError && <p className="sp-import__error">{importError}</p>}
+        </div>
+      ) : (
+        <button className="create-row glass" onClick={() => setImportOpen(true)}>
+          <span className="create-row__icon sp-badge-icon">S</span>
+          <span>
+            <span className="create-row__title">Importa da Spotify</span>
+            <span className="create-row__sub">Link + lista dei brani, salvata sul telefono</span>
+          </span>
+        </button>
+      )}
+
       {playlists.length === 0 ? (
         <p className="tracks__none">
           <ListIcon size={20} /> Non hai ancora playlist.
@@ -197,16 +375,16 @@ export function PlaylistsView({
         <div className="playlist-grid">
           {playlists.map((item) => {
             const first = item.trackIds.map((id) => byId.get(id)).find(Boolean)
-            const cover = first?.artUrl ?? item.videos[0]?.thumb
+            const cover = first?.artUrl ?? item.videos[0]?.thumb ?? item.spotify?.tracks[0]?.thumb
+            const count =
+              item.trackIds.length + item.videos.length + (item.spotify?.tracks.length ?? 0)
             return (
               <button key={item.id} className="playlist-card" onClick={() => setOpenId(item.id)}>
                 <span className="playlist-card__art">
                   {cover ? <img src={cover} alt="" loading="lazy" /> : <ListIcon size={30} />}
                 </span>
                 <span className="playlist-card__name">{item.name}</span>
-                <span className="playlist-card__meta">
-                  {pluralise(item.trackIds.length + item.videos.length, 'brano', 'brani')}
-                </span>
+                <span className="playlist-card__meta">{pluralise(count, 'brano', 'brani')}</span>
               </button>
             )
           })}

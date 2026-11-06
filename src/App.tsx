@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react'
 import { useAudioPlayer } from './hooks/useAudioPlayer'
 import { useLibrary } from './hooks/useLibrary'
 import { useOfflineCache } from './hooks/useOfflineCache'
-import type { Tab, Track } from './lib/types'
+import type { Playlist, Tab, Track } from './lib/types'
 import { MiniPlayer } from './components/MiniPlayer'
 import { NowPlaying } from './components/NowPlaying'
 import { QueueSheet } from './components/QueueSheet'
@@ -26,7 +26,9 @@ import { PlaylistsView } from './views/PlaylistsView'
 import { TracksView } from './views/TracksView'
 import { YouTubeScreen } from './components/YouTubeScreen'
 import type { YouTubePlayerHandle } from './components/YouTubePlayer'
+import { searchYouTube } from './lib/youtube'
 import type { YouTubeVideo } from './lib/youtube'
+import { spotifyQuery, toYouTubeVideo } from './lib/spotify'
 
 const TAB_TITLES: Record<Tab, string> = {
   discover: 'Scopri',
@@ -211,6 +213,40 @@ export default function App() {
     [openYouTube, yt],
   )
 
+  /**
+   * Brani importati da Spotify: non esiste un flusso Spotify da riprodurre, quindi
+   * il brano viene cercato su YouTube la prima volta e il video trovato resta
+   * salvato nella playlist (le volte dopo partono subito).
+   */
+  const playSpotifyTrack = useCallback(
+    async (playlist: Playlist, index: number) => {
+      const item = playlist.spotify?.tracks[index]
+      if (!item) return
+
+      const known = toYouTubeVideo(item)
+      if (known) {
+        openYouTube([known], 0)
+        return
+      }
+
+      setNotice('Cerco il brano su YouTube…')
+      try {
+        const [video] = await searchYouTube(spotifyQuery(item))
+        if (!video) {
+          setNotice('Brano non trovato su YouTube')
+          return
+        }
+        await library.rememberSpotifyVideo(playlist.id, item.id, video)
+        openYouTube([video], 0)
+      } catch (searchError) {
+        setNotice(
+          searchError instanceof Error ? searchError.message : 'Ricerca non disponibile ora.',
+        )
+      }
+    },
+    [library, openYouTube],
+  )
+
   const accent =
     player.currentTrack?.artColor ?? library.tracks[0]?.artColor ?? 'hsl(248 62% 62%)'
   const ambientArt = player.currentTrack?.artUrl ?? library.tracks[0]?.artUrl
@@ -334,6 +370,9 @@ export default function App() {
                 void library.toggleVideoInPlaylist(playlistId, video)
               }
               onOpenVideo={openYouTube}
+              onImportSpotify={library.createSpotifyPlaylist}
+              onPlaySpotify={(playlist, index) => void playSpotifyTrack(playlist, index)}
+              onDeletePlaylist={(playlistId) => void library.removePlaylist(playlistId)}
               onRemoveFromPlaylist={(playlistId, trackId) =>
                 void library.toggleTrackInPlaylist(playlistId, trackId)
               }

@@ -989,6 +989,114 @@ img {
   gap: 6px;
 }
 
+/* ------------------------------------------------------- import da Spotify */
+
+.sp-import {
+  gap: 8px;
+}
+
+.sp-import__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.sp-import__area {
+  resize: vertical;
+  min-height: 132px;
+  line-height: 1.45;
+  font-family: inherit;
+}
+
+.sp-import__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sp-import__count {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.sp-import__error {
+  margin: 0;
+  font-size: 12.5px;
+  color: #ffb4b4;
+}
+
+.sp-badge-icon {
+  font-size: 15px;
+  font-weight: 700;
+  color: #1ed760;
+}
+
+.sp-badge {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #06230f;
+  background: #1ed760;
+}
+
+.sp-list__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 14px 4px;
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--muted);
+}
+
+.sp-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 12px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sp-row:active {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.sp-row__index {
+  flex: none;
+  width: 18px;
+  font-size: 12px;
+  text-align: right;
+  color: rgba(255, 255, 255, 0.45);
+  font-variant-numeric: tabular-nums;
+}
+
+.sp-row__thumb-empty {
+  display: block;
+}
+
+.playlist-hero__link {
+  margin-top: 4px;
+}
+
+.playlist-hero__delete {
+  margin-top: 8px;
+  opacity: 0.72;
+}
+
 .playlist-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { allPlaylists, allTracks, deleteTrack, putPlaylist, putTrack } from '../lib/db'
+import {
+  allPlaylists,
+  allTracks,
+  deletePlaylist as deletePlaylistRow,
+  deleteTrack,
+  putPlaylist,
+  putTrack,
+} from '../lib/db'
 import { extractAccent } from '../lib/colors'
 import { guessFromFileName } from '../lib/format'
 import { readTags } from '../lib/tags'
-import type { Playlist, PlaylistVideo, StoredTrack, Track } from '../lib/types'
+import type { Playlist, PlaylistVideo, SpotifyTrack, StoredTrack, Track } from '../lib/types'
 
 const AUDIO_EXTENSIONS = /\.(mp3|m4a|m4b|aac|flac|wav|aiff?|ogg|oga|opus|weba)$/i
 
@@ -277,8 +284,7 @@ export function useLibrary() {
     if (updated) await putPlaylist(updated)
   }, [])
 
-  /** Aggiunge o toglie un video YouTube dalla playlist. */
-  const toggleVideoInPlaylist = useCallback(
+  /** Aggiunge o toglie un video YouTube dalla playlist. */  const toggleVideoInPlaylist = useCallback(
     async (playlistId: string, video: PlaylistVideo) => {
       let updated: Playlist | null = null
       setPlaylists((previous) =>
@@ -289,6 +295,61 @@ export function useLibrary() {
           updated = {
             ...list,
             videos: has ? videos.filter((item) => item.id !== video.id) : [...videos, video],
+            updatedAt: Date.now(),
+          }
+          return updated
+        }),
+      )
+      if (updated) await putPlaylist(updated)
+    },
+    [],
+  )
+
+  /** Elimina la playlist: i brani della libreria restano dove sono. */
+  const removePlaylist = useCallback(async (id: string) => {
+    await deletePlaylistRow(id)
+    setPlaylists((previous) => previous.filter((list) => list.id !== id))
+  }, [])
+
+  /**
+   * Importa la lista incollata di una playlist Spotify: la playlist vive solo
+   * su questo dispositivo e i brani non hanno audio proprio (vedi lib/spotify).
+   */
+  const createSpotifyPlaylist = useCallback(
+    async (input: { name: string; url?: string; tracks: SpotifyTrack[] }) => {
+      const playlist: Playlist = {
+        id: crypto.randomUUID(),
+        name: input.name.trim() || 'Playlist Spotify',
+        trackIds: [],
+        videos: [],
+        spotify: { url: input.url, tracks: input.tracks },
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+      await putPlaylist(playlist)
+      setPlaylists((previous) => [...previous, playlist])
+      return playlist
+    },
+    [],
+  )
+
+  /** Memorizza il video YouTube trovato per un brano Spotify: non si ricerca due volte. */
+  const rememberSpotifyVideo = useCallback(
+    async (playlistId: string, trackId: string, video: PlaylistVideo) => {
+      let updated: Playlist | null = null
+      setPlaylists((previous) =>
+        previous.map((list) => {
+          if (list.id !== playlistId || !list.spotify) return list
+          updated = {
+            ...list,
+            spotify: {
+              ...list.spotify,
+              tracks: list.spotify.tracks.map((item) =>
+                item.id === trackId
+                  ? { ...item, videoId: video.id, seconds: video.seconds, thumb: video.thumb }
+                  : item,
+              ),
+            },
             updatedAt: Date.now(),
           }
           return updated
@@ -310,7 +371,10 @@ export function useLibrary() {
     saveRemoteTrack,
     removeTrack,
     createPlaylist,
+    removePlaylist,
     toggleTrackInPlaylist,
     toggleVideoInPlaylist,
+    createSpotifyPlaylist,
+    rememberSpotifyVideo,
   }
 }
