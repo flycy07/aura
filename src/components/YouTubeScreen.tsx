@@ -20,6 +20,8 @@ import { formatTime } from '../lib/format'
 
 type Props = {
   video: YouTubeVideo
+  /** Copertina ufficiale del brano/album, quando la ricerca la trova. */
+  coverUrl?: string
   /**
    * Ridotta nella barra in basso: il componente resta montato (solo opacità e
    * tocchi cambiano) così il player YouTube non si ricarica e continua a suonare.
@@ -42,6 +44,7 @@ type Props = {
 
 export function YouTubeScreen({
   video,
+  coverUrl,
   minimized,
   playing,
   playerRef,
@@ -122,6 +125,7 @@ export function YouTubeScreen({
       />
 
       <div className="ytnp__row">
+        {coverUrl && <img className="ytnp__art" src={coverUrl} alt="" />}
         <div className="ytnp__meta">
           <h2 className="ytnp__title">{video.title}</h2>
           <p className="ytnp__channel">{video.channel}</p>

@@ -379,6 +379,15 @@
   gap: 12px;
 }
 
+.ytnp__art {
+  width: 54px;
+  height: 54px;
+  flex: none;
+  border-radius: 12px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .ytnp__meta {
   flex: 1;
   min-width: 0;

@@ -4,6 +4,7 @@ import { useAudioPlayer } from './hooks/useAudioPlayer'
 import { useLibrary } from './hooks/useLibrary'
 import { useOfflineCache } from './hooks/useOfflineCache'
 import type { Playlist, Tab, Track } from './lib/types'
+import { cleanVideoTitle, lookupCover } from './lib/cover'
 import { MiniPlayer } from './components/MiniPlayer'
 import { NowPlaying } from './components/NowPlaying'
 import { QueueSheet } from './components/QueueSheet'
@@ -121,40 +122,6 @@ export default function App() {
   }, [])
 
   /**
-   * Copertina ufficiale e titoli puliti dell'album, senza passare dai video: la
-   * ricerca iTunes risponde al browser direttamente (Deezer no, manca il CORS e
-   * servirebbe un proxy). Se la ricerca fallisce si tiene quello che c'è già.
-   */
-  const lookupOfficialCover = useCallback(async (artist: string, title: string) => {
-    const term = `${artist} ${title}`.trim()
-    if (!term) return null
-    try {
-      const response = await fetch(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=1`,
-      )
-      if (!response.ok) return null
-      const payload = (await response.json()) as {
-        results?: {
-          trackName?: string
-          artistName?: string
-          collectionName?: string
-          artworkUrl100?: string
-        }[]
-      }
-      const hit = payload.results?.[0]
-      if (!hit) return null
-      return {
-        title: hit.trackName?.trim() || title,
-        artist: hit.artistName?.trim() || artist,
-        album: hit.collectionName?.trim(),
-        artUrl: hit.artworkUrl100?.replace('100x100', '600x600'),
-      }
-    } catch {
-      // Rete assente o Apple giù: si continua con i metadati del brano.
-      return null
-    }
-  }, [])
-
   /**
    * Un solo audio alla volta: il player usa un elemento audio nativo, che è
    * quello che continua a suonare con il telefono bloccato.
@@ -172,7 +139,7 @@ export default function App() {
       )
 
       // La copertina arriva dopo l'avvio: la riproduzione non aspetta la rete.
-      void lookupOfficialCover(track.artist, track.title).then((meta) => {
+      void lookupCover(`${track.artist} ${track.title}`).then((meta) => {
         if (!meta) return
         if (meta.artUrl) {
           rememberCatalogueTracks([
@@ -195,7 +162,7 @@ export default function App() {
         })
       })
     },
-    [lookupOfficialCover, offline, player, rememberCatalogueTracks, yt, ytPlaying],
+    [offline, player, rememberCatalogueTracks, yt, ytPlaying],
   )
 
   const createPlaylistWithTrack = useCallback(async () => {
@@ -301,6 +268,26 @@ export default function App() {
   const ambientArt = player.currentTrack?.artUrl ?? library.tracks[0]?.artUrl
   const showPlayer = Boolean(player.currentTrack)
   const ytVideo = yt ? yt.videos[yt.index] : undefined
+  // Copertina ufficiale per i video YouTube: la miniatura del video non è la cover.
+  const [ytCovers, setYtCovers] = useState<Record<string, string>>({})
+  const ytVideoId = ytVideo?.id
+  const ytVideoTitle = ytVideo?.title
+
+  useEffect(() => {
+    if (!ytVideoId || !ytVideoTitle || ytCovers[ytVideoId]) return
+    let cancelled = false
+    void lookupCover(cleanVideoTitle(ytVideoTitle)).then((cover) => {
+      if (cancelled || !cover?.artUrl) return
+      setYtCovers((previous) =>
+        previous[ytVideoId] ? previous : { ...previous, [ytVideoId]: cover.artUrl as string },
+      )
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [ytCovers, ytVideoId, ytVideoTitle])
+
+  const ytCover = ytVideoId ? ytCovers[ytVideoId] : undefined
   const ytHasPrev = yt ? yt.index > 0 : false
   const ytHasNext = yt ? yt.index < yt.videos.length - 1 : false
 
@@ -439,7 +426,7 @@ export default function App() {
               aria-label="Riapri il player YouTube"
             >
               <span className="mini__art">
-                <img src={ytVideo.thumb} alt="" />
+                <img src={ytCover ?? ytVideo.thumb} alt="" />
               </span>
               <span className="mini__text">
                 <span className="mini__title">{ytVideo.title}</span>
@@ -522,6 +509,7 @@ export default function App() {
       {ytVideo && (
         <YouTubeScreen
           video={ytVideo}
+          coverUrl={ytCover}
           minimized={!ytExpanded}
           playing={ytPlaying}
           playerRef={ytPlayer}
